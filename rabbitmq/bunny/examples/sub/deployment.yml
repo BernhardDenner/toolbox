@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: bunny-sub
+  name: bunny-sub
+  namespace: rabbitmq
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: bunny-sub
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: bunny-sub
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: name
+                  operator: In
+                  values:
+                  - bunny-sub
+              topologyKey: kubernetes.io/hostname
+            weight: 1
+      containers:
+      - image: bernhard97/bunny-sub:0.0.3
+        imagePullPolicy: IfNotPresent
+        name: bunny-sub
+        env:
+        - name: RABBITMQ_URL
+          value: "amqp://user:uteoijvd09j43n@rabbitmq.rabbitmq.svc?heartbeat=8"
+        ports: []
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 500m
+          limits:
+            memory: 64Mi
+            cpu: 500m
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+      restartPolicy: Always

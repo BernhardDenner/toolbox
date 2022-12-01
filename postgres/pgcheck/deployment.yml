@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: pgcheck
+  name: pgcheck
+  namespace: pgo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      name: pgcheck
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: pgcheck
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: name
+                  operator: In
+                  values:
+                  - pgcheck
+              topologyKey: kubernetes.io/hostname
+            weight: 1
+      containers:
+      - image: bernhard97/pgcheck:0.2.12
+        imagePullPolicy: IfNotPresent
+        name: pgcheck
+        command: ["./run.rb"]
+        env:
+        - name: DB_HOST
+          value: hippo.pgo.svc
+          #value: hippo-pgbouncer.pgo.svc
+        - name: PGHA_PG_PORT
+          value: "5432"
+        - name: DB_USERNAME
+          #value: postgres
+          #value: primaryuser
+          valueFrom:
+            secretKeyRef:
+              name: hippo-hippo-secret
+              key: username
+        - name: DB_PASSWORD
+          #value: "NI;DNzc3VH,vy3;l5>)R?NbI"
+          #value: "/H;qTI_Zr@D/GLzDT?XhA{g{"
+          valueFrom:
+            secretKeyRef:
+              name: hippo-hippo-secret
+              key: password
+        - name: UPDATE_INTERVAL
+          value: "1"
+        - name: INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        ports: []
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 500m
+          limits:
+            memory: 64Mi
+            cpu: 500m
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+      restartPolicy: Always

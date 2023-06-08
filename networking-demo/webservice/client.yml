@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    name: webclient
+  name: webclient
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: webclient
+  template:
+    metadata:
+      labels:
+        name: webclient
+    spec:
+      containers:
+      - image: library/busybox:latest
+        imagePullPolicy: IfNotPresent
+        name: webclient
+        command:
+        - sh
+        - -c
+        - |-
+          while true; do
+            wget -q -O - http://webservice:8080
+            sleep 1
+          done
+        env:
+        - name: PORT
+          value: "8080"
+        ports: []
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+      restartPolicy: Always

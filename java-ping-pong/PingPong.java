@@ -17,10 +17,18 @@ public class PingPong {
             Formatter customFormatter = new Formatter() {
                 @Override
                 public String format(LogRecord record) {
-                    return String.format("[%1$tF %1$tT.%1$tL] [%2$-4s] %3$s %n",
+                    String exceptionMessage = "";
+                    if (record.getThrown() != null) {
+                        StringWriter sw = new StringWriter();
+                        PrintWriter pw = new PrintWriter(sw);
+                        record.getThrown().printStackTrace(pw);
+                        exceptionMessage = sw.toString();
+                    }
+                    return String.format("[%1$tF %1$tT.%1$tL] [%2$-4s] %3$s %n%4$s",
                             new java.util.Date(record.getMillis()),
                             record.getLevel().getName(),
-                            record.getMessage());
+                            record.getMessage(),
+                            exceptionMessage);
                 }
             };
 

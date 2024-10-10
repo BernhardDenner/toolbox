@@ -66,6 +66,9 @@ def main():
                     logging.info("new high: %.2fms, was %.2fms" % (delta * 1000, highestDelta * 1000))
                     highestDelta = delta
 
+                if delta > 0.1:
+                    logging.warning(f"high latency: {delta * 1000:.2f}ms")
+
                 time.sleep(0.01)
             except KeyboardInterrupt:
                 logging.info("Exiting.")

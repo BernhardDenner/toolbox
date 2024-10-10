@@ -11,6 +11,9 @@ import logging
 CHUNK_SIZE = 102400
 CHUNKS_TO_WRITE = 1
 
+# latencies bigger than this will trigger a warning message
+WARNING_THRESHOLD = 0.1
+
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -66,7 +69,7 @@ def main():
                     logging.info("new high: %.2fms, was %.2fms" % (delta * 1000, highestDelta * 1000))
                     highestDelta = delta
 
-                if delta > 0.1:
+                if delta > WARNING_THRESHOLD:
                     logging.warning(f"high latency: {delta * 1000:.2f}ms")
 
                 time.sleep(0.01)
@@ -81,6 +84,8 @@ def main():
     logging.info(f"highest measured latency: {highestDelta * 1000:.2f}ms")
     logging.info(f"deleting file '{filePath}'")
     os.unlink(filePath)
+    # forceing exit to avoid hanging
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

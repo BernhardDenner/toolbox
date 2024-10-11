@@ -203,12 +203,12 @@ public class PingPong {
             scheduler.scheduleAtFixedRate(pingTask, 0, SEND_PING_INTERVAL, TimeUnit.MILLISECONDS);
 
             // reset highest round-trip time after 5 minute
-            scheduler.schedule(() -> {
+            scheduler.scheduleAtFixedRate(() -> {
                 if (highestDuration != 0) {
                     logger.info(String.format("Resetting highest round-trip time, was: %.3f ms", highestDuration / 1000));
                     highestDuration = 0;
                 }
-            }, 5, TimeUnit.MINUTES);
+            }, 0, 5, TimeUnit.MINUTES);
 
             // Write prometheus metrics every 10 seconds
             if (writePrometheusMetrics) {

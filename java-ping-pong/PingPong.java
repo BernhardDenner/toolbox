@@ -127,7 +127,9 @@ public class PingPong {
 
                     out.println("pong");
 
-                    logger.info("Got ping, sent pong, largeobjects count: " + largeObjects.size());
+                    if (largeObjects.size() % 100 == 0) {
+                        logger.info("Got ping, sent pong, largeobjects count: " + largeObjects.size());
+                    }
                 } else {
                     logger.warning("Got unknown message: " + message);
                 }

@@ -21,113 +21,113 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 
+class IOLatencyMonitor:
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.highest_delta = 0
+        self.window_size = 100
+        self.recent_deltas = []
+        self.rolling_avg = 0
+        self.fsync_runs = 0
+        self.latency_sum = 0
+        self.timers = {}
+
+    def log_rolling_avg(self):
+        logging.info(f"rolling average: {self.rolling_avg * 1000:.2f}ms")
+        self.timers['rolling_avg'] = Timer(10, self.log_rolling_avg)
+        self.timers['rolling_avg'].start()
+
+    def write_prometheus_metrics(self):
+        with open(f"{PROMETHEUS_TEXTFILE_PATH}.tmp", 'w') as f:
+            f.write(f'# HELP iolatency_latency Highest measured latency in milliseconds\n')
+            f.write(f'# TYPE iolatency_latency gauge\n')
+            f.write(f'iolatency_latency {self.highest_delta * 1000:.2f}\n')
+            f.write(f'# HELP iolatency_rolling_avg Rolling average of latencies in milliseconds\n')
+            f.write(f'# TYPE iolatency_rolling_avg gauge\n')
+            f.write(f'iolatency_rolling_avg {self.rolling_avg * 1000:.2f}\n')
+            f.write(f'# HELP iolatency_fsync_count Number of fsync runs\n')
+            f.write(f'# TYPE iolatency_fsync_count gauge\n')
+            f.write(f'iolatency_fsync_count {self.fsync_runs}\n')
+            f.write(f'# HELP iolatency_latency_sum_ms Sum of all latencies in milliseconds\n')
+            f.write(f'# TYPE iolatency_latency_sum_ms gauge\n')
+            f.write(f'iolatency_latency_sum_ms {self.latency_sum * 1000:.2f}\n')
+        os.rename(f"{PROMETHEUS_TEXTFILE_PATH}.tmp", PROMETHEUS_TEXTFILE_PATH)
+
+        self.timers['prom'] = Timer(10, self.write_prometheus_metrics)
+        self.timers['prom'].start()
+
+    def reset_highest_delta(self):
+        self.highest_delta = 0
+        self.timers['reset_top'] = Timer(5 * 60, self.reset_highest_delta)
+        self.timers['reset_top'].start()
+
+
+    def start(self):
+        logging.info(f"writing {CHUNK_SIZE * CHUNKS_TO_WRITE / 1024:.2f}KB random data to file '{self.file_path}'")
+
+        if os.access(os.path.dirname(PROMETHEUS_TEXTFILE_PATH), os.W_OK):
+            logging.info(f"writing prometheus metrics to '{PROMETHEUS_TEXTFILE_PATH}'")
+            self.write_prometheus_metrics()
+        else:
+            logging.warning(f"cannot write to '{PROMETHEUS_TEXTFILE_PATH}', prometheus metrics are not available")
+
+        self.reset_highest_delta()
+        self.log_rolling_avg()
+
+        with open(self.file_path, 'w') as fd:
+            while True:
+                try:
+                    os.lseek(fd.fileno(), 0, os.SEEK_SET)
+
+                    start_time = time.time()
+
+                    for _ in range(CHUNKS_TO_WRITE):
+                        fd.write(os.urandom(CHUNK_SIZE).hex())
+                    fd.flush()
+                    os.fsync(fd.fileno())
+
+                    end_time = time.time()
+                    delta = end_time - start_time
+                    self.latency_sum += delta
+                    self.fsync_runs += 1
+
+                    self.recent_deltas.append(delta)
+                    if len(self.recent_deltas) > self.window_size:
+                        self.recent_deltas.pop(0)
+
+                    self.rolling_avg = sum(self.recent_deltas) / len(self.recent_deltas)
+
+                    if delta > self.highest_delta:
+                        logging.info("new high: %.2fms, was %.2fms" % (delta * 1000, self.highest_delta * 1000))
+                        self.highest_delta = delta
+
+                    if delta > WARNING_THRESHOLD:
+                        logging.warning(f"high latency: {delta * 1000:.2f}ms")
+
+                    time.sleep(0.1)
+                except KeyboardInterrupt:
+                    logging.info("Exiting.")
+                    break
+                except Exception as e:
+                    logging.error("Exception:", e)
+                    break
+
+        logging.info(f"highest measured latency: {self.highest_delta * 1000:.2f}ms")
+        logging.info(f"deleting file '{self.file_path}'")
+        os.unlink(self.file_path)
+        for timer in self.timers.values():
+            timer.cancel()
+        sys.exit(0)
+
+
 def main():
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} <path to file to write>")
         sys.exit(1)
 
-    filePath = sys.argv[1]
-
-    logging.info(f"writing {CHUNK_SIZE * CHUNKS_TO_WRITE / 1024:.2f}KB random data to file '{filePath}'")
-
-    highestDelta = 0
-    window_size = 100  # Define the window size for the rolling average
-    recent_deltas = []  # List to store recent delta values
-    rolling_avg = 0  # Initialize the rolling average
-    fsync_runs = 0  # Number of fsync runs
-    latency_sum = 0  # Sum of latencies
-
-    t = None # Timer object
-
-    def log_rolling_avg():
-        logging.info(f"rolling average: {rolling_avg * 1000:.2f}ms")
-        t = Timer(10, log_rolling_avg)
-        t.start()
-
-    t = Timer(10, log_rolling_avg)
-    t.start()
-
-    def write_prometheus_metrics():
-        with open(f"{PROMETHEUS_TEXTFILE_PATH}.tmp", 'w') as f:
-            f.write(f'# HELP iolatency_latency Highest measured latency in milliseconds\n')
-            f.write(f'# TYPE iolatency_latency gauge\n')
-            f.write(f'iolatency_latency {highestDelta * 1000:.2f}\n')
-            f.write(f'# HELP iolatency_rolling_avg Rolling average of latencies in milliseconds\n')
-            f.write(f'# TYPE iolatency_rolling_avg gauge\n')
-            f.write(f'iolatency_rolling_avg {rolling_avg * 1000:.2f}\n')
-            f.write(f'# HELP iolatency_fsync_count Number of fsync runs\n')
-            f.write(f'# TYPE iolatency_fsync_count gauge\n')
-            f.write(f'iolatency_fsync_count {fsync_runs}\n')
-            f.write(f'# HELP iolatency_latency_sum_ms Sum of all latencies in milliseconds\n')
-            f.write(f'# TYPE iolatency_latency_sum_ms gauge\n')
-            f.write(f'iolatency_latency_sum_ms {latency_sum * 1000:.2f}\n')
-        os.rename(f"{PROMETHEUS_TEXTFILE_PATH}.tmp", PROMETHEUS_TEXTFILE_PATH)
-
-        Timer(10, write_prometheus_metrics).start()
-
-    
-
-    if os.access(os.path.dirname(PROMETHEUS_TEXTFILE_PATH), os.W_OK):
-        logging.info(f"writing prometheus metrics to '{PROMETHEUS_TEXTFILE_PATH}'")
-        # start the prometheus metrics writer
-        write_prometheus_metrics()
-    else:
-        logging.warning(f"cannot write to '{PROMETHEUS_TEXTFILE_PATH}', prometheus metrics are not available")
-
-
-    def reset_highestDelta():
-        nonlocal highestDelta
-        highestDelta = 0
-        Timer(5 * 60, reset_highestDelta).start()
-
-    reset_highestDelta()
-
-    with open(filePath, 'w') as fd:
-        while True:
-            try:
-                os.lseek(fd.fileno(), 0, os.SEEK_SET)
-
-                startTime = time.time()
-
-                for _ in range(CHUNKS_TO_WRITE):
-                    fd.write(os.urandom(CHUNK_SIZE).hex())
-                fd.flush()
-                os.fsync(fd.fileno())
-
-                endTime = time.time()
-                delta = endTime - startTime
-                latency_sum += delta
-                fsync_runs += 1
-
-                # Update the list of recent deltas
-                recent_deltas.append(delta)
-                if len(recent_deltas) > window_size:
-                    recent_deltas.pop(0)
-
-                # Calculate the rolling average
-                rolling_avg = sum(recent_deltas) / len(recent_deltas)
-
-                if delta > highestDelta:
-                    logging.info("new high: %.2fms, was %.2fms" % (delta * 1000, highestDelta * 1000))
-                    highestDelta = delta
-
-                if delta > WARNING_THRESHOLD:
-                    logging.warning(f"high latency: {delta * 1000:.2f}ms")
-
-                time.sleep(0.1)
-            except KeyboardInterrupt:
-                logging.info("Exiting.")
-                break
-            except Exception as e:
-                logging.error("Exception:", e)
-                break
-    
-    t.cancel()
-    logging.info(f"highest measured latency: {highestDelta * 1000:.2f}ms")
-    logging.info(f"deleting file '{filePath}'")
-    os.unlink(filePath)
-    # forceing exit to avoid hanging
-    sys.exit(0)
+    file_path = sys.argv[1]
+    monitor = IOLatencyMonitor(file_path)
+    monitor.start()
 
 if __name__ == "__main__":
     main()

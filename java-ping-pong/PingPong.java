@@ -4,6 +4,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.logging.*;
+import java.util.HashMap;
+import java.util.Map;
+
 
 public class PingPong {
 
@@ -11,12 +14,18 @@ public class PingPong {
     private static final Logger logger = Logger.getLogger(PingPong.class.getName());
 
     private double highestDuration = 0;
+    private double roundtripCount = 0;
+    private double roundtripSum = 0;
+    private HashMap<Integer, Double> roundtripTimes = new HashMap<>();
 
     public static final int OBJECT_SIZE = 1024 * 1024; // 1 MB
 
     private final List<LargeObject> largeObjects = new LinkedList<>();
 
     public static final int SEND_PING_INTERVAL = 2; // ms
+
+
+    private static final String PROMETHEUS_TEXTFILE_PATH = "/var/lib/prometheus/node-exporter";
 
     static {
         // Set up the logger with a custom format
@@ -142,9 +151,19 @@ public class PingPong {
 
     protected void client() {
         logger.info("starting client on port " + PORT + " and sending ping every " + SEND_PING_INTERVAL + " ms");
+        final boolean writePrometheusMetrics = isPrometheusTextFilePathisWriteable();
+
+        if (writePrometheusMetrics) {
+            logger.info("Prometheus metrics will be written to: " + PROMETHEUS_TEXTFILE_PATH);
+        } else {
+            logger.warning("Prometheus metrics will not be written, as the path is not writeable: " + PROMETHEUS_TEXTFILE_PATH);
+        }
+
         try (Socket socket = new Socket("localhost", PORT);
                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
+
+
 
             ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
             Runnable pingTask = () -> {
@@ -154,15 +173,38 @@ public class PingPong {
                     String response = in.readLine();
                     long endTime = System.nanoTime();
                     double duration = TimeUnit.NANOSECONDS.toMicros(endTime - startTime);
+                    roundtripCount++;
+                    roundtripSum += duration;
+
+                    int durationMs = (int) (duration / 1000);
+                    int bucket = durationMs / 10 * 10;
+                    if (bucket > 1000) {
+                        bucket = 1000;
+                    } else if (bucket > 100) {
+                        bucket = bucket / 100 * 100;
+                    }
+                    roundtripTimes.put(bucket, roundtripTimes.getOrDefault(bucket, 0.0) + 1);
+
 
                     if (duration > highestDuration) {
                         highestDuration = duration;
                         logger.info(String.format("New highest round-trip time: %.3f ms", highestDuration / 1000));
+
+                        // reset highest round-trip time after 5 minute
+                        scheduler.schedule(() -> {
+                            logger.info(String.format("Resetting highest round-trip time: %.3f ms", highestDuration / 1000));
+                            highestDuration = 0;
+                        }, 5, TimeUnit.MINUTES);
+
                     } else if (duration > 20000) { // 20 ms
                         logger.warning(String.format("High Round-trip time: %.3f ms", duration / 1000));
                     }
                 } catch (IOException e) {
                     logger.log(Level.SEVERE, "Ping task exception", e);
+                }
+
+                if (writePrometheusMetrics) {
+                    writePrometheusMetrics();
                 }
             };
 
@@ -174,6 +216,59 @@ public class PingPong {
             logger.log(Level.SEVERE, "Client exception", e);
         }
     }
+    
+
+
+    private boolean isPrometheusTextFilePathisWriteable() {
+        File prometheusTextFile = new File(PROMETHEUS_TEXTFILE_PATH + "/.test");
+        if (prometheusTextFile.exists()) {
+            if (!prometheusTextFile.canWrite()) {
+                return false;
+            }
+        } else {
+            try {
+                prometheusTextFile.createNewFile();
+                prometheusTextFile.delete();
+            } catch (IOException e) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void writePrometheusMetrics() {
+        if (!isPrometheusTextFilePathisWriteable()) {
+            logger.warning("Prometheus text file path is not writeable: " + PROMETHEUS_TEXTFILE_PATH);
+            return;
+        }
+
+        File prometheusTextFile = new File(PROMETHEUS_TEXTFILE_PATH + "/ping_pong.prom.tmp");
+        try (PrintWriter writer = new PrintWriter(prometheusTextFile)) {
+            writer.println("# HELP ping_pong_round_trip_time Round trip time of ping pong in microseconds within the last 5 minutes");
+            writer.println("# TYPE ping_pong_round_trip_time gauge");
+            writer.println("ping_pong_round_trip_peak_time " + highestDuration);
+            writer.println();
+            writer.println("# HELP ping_pong_round_trip_count Number of round trips");
+            writer.println("# TYPE ping_pong_round_trip_count counter");
+            writer.println("ping_pong_round_trip_count " + roundtripCount);
+            for (Map.Entry<Integer, Double> entry : roundtripTimes.entrySet()) {
+                writer.println("ping_pong_round_trip_time_bucket{le=\"" + entry.getKey() + "\"} " + entry.getValue());
+            }
+            writer.println();
+            writer.println("# HELP ping_pong_round_trip_sum Sum of round trip times in microseconds");
+            writer.println("# TYPE ping_pong_round_trip_sum counter");
+            writer.println("ping_pong_round_trip_time_sum_us " + roundtripSum);
+
+            writer.flush();
+            writer.close();
+            // Rename the file to make it available for prometheus
+            File finalFile = new File(PROMETHEUS_TEXTFILE_PATH + "/ping_pong.prom");
+            prometheusTextFile.renameTo(finalFile);
+        } catch (IOException e) {
+            logger.log(Level.SEVERE, "Failed to write prometheus metrics", e);
+        }
+    }
+
 
     public static void main(String[] args) {
         if (args.length != 1) {

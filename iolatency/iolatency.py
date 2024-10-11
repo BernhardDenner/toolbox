@@ -13,7 +13,7 @@ CHUNK_SIZE = 102400
 CHUNKS_TO_WRITE = 1
 
 # latencies bigger than this will trigger a warning message
-WARNING_THRESHOLD = 0.1
+WARNING_THRESHOLD = 0.2
 
 PROMETHEUS_TEXTFILE_PATH = '/var/lib/prometheus/node-exporter/iolatency.prom'
 

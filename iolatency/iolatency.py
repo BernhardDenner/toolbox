@@ -15,6 +15,8 @@ CHUNKS_TO_WRITE = 1
 # latencies bigger than this will trigger a warning message
 WARNING_THRESHOLD = 0.1
 
+PROMETHEUS_TEXTFILE_PATH = '/var/lib/prometheus/node-exporter/iolatency.prom'
+
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -32,6 +34,8 @@ def main():
     window_size = 100  # Define the window size for the rolling average
     recent_deltas = []  # List to store recent delta values
     rolling_avg = 0  # Initialize the rolling average
+    fsync_runs = 0  # Number of fsync runs
+    latency_sum = 0  # Sum of latencies
 
     t = None # Timer object
 
@@ -42,6 +46,41 @@ def main():
 
     t = Timer(10, log_rolling_avg)
     t.start()
+
+    def write_prometheus_metrics():
+        with open(f"{PROMETHEUS_TEXTFILE_PATH}.tmp", 'w') as f:
+            f.write(f'# HELP iolatency_latency Highest measured latency in milliseconds\n')
+            f.write(f'# TYPE iolatency_latency gauge\n')
+            f.write(f'iolatency_latency {highestDelta * 1000:.2f}\n')
+            f.write(f'# HELP iolatency_rolling_avg Rolling average of latencies in milliseconds\n')
+            f.write(f'# TYPE iolatency_rolling_avg gauge\n')
+            f.write(f'iolatency_rolling_avg {rolling_avg * 1000:.2f}\n')
+            f.write(f'# HELP iolatency_fsync_count Number of fsync runs\n')
+            f.write(f'# TYPE iolatency_fsync_count gauge\n')
+            f.write(f'iolatency_fsync_count {fsync_runs}\n')
+            f.write(f'# HELP iolatency_latency_sum_ms Sum of all latencies in milliseconds\n')
+            f.write(f'# TYPE iolatency_latency_sum_ms gauge\n')
+            f.write(f'iolatency_latency_sum_ms {latency_sum * 1000:.2f}\n')
+        os.rename(f"{PROMETHEUS_TEXTFILE_PATH}.tmp", PROMETHEUS_TEXTFILE_PATH)
+
+        Timer(10, write_prometheus_metrics).start()
+
+    
+
+    if os.access(os.path.dirname(PROMETHEUS_TEXTFILE_PATH), os.W_OK):
+        logging.info(f"writing prometheus metrics to '{PROMETHEUS_TEXTFILE_PATH}'")
+        # start the prometheus metrics writer
+        write_prometheus_metrics()
+    else:
+        logging.warning(f"cannot write to '{PROMETHEUS_TEXTFILE_PATH}', prometheus metrics are not available")
+
+
+    def reset_highestDelta():
+        nonlocal highestDelta
+        highestDelta = 0
+        Timer(5 * 60, reset_highestDelta).start()
+
+    reset_highestDelta()
 
     with open(filePath, 'w') as fd:
         while True:
@@ -57,6 +96,8 @@ def main():
 
                 endTime = time.time()
                 delta = endTime - startTime
+                latency_sum += delta
+                fsync_runs += 1
 
                 # Update the list of recent deltas
                 recent_deltas.append(delta)
@@ -73,7 +114,7 @@ def main():
                 if delta > WARNING_THRESHOLD:
                     logging.warning(f"high latency: {delta * 1000:.2f}ms")
 
-                time.sleep(0.01)
+                time.sleep(0.1)
             except KeyboardInterrupt:
                 logging.info("Exiting.")
                 break

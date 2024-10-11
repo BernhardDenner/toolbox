@@ -163,9 +163,10 @@ public class PingPong {
                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
 
-
-
             ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+            // Client ping loop
+            // scheduled to run every SEND_PING_INTERVAL ms
             Runnable pingTask = () -> {
                 try {
                     long startTime = System.nanoTime();
@@ -190,12 +191,6 @@ public class PingPong {
                         highestDuration = duration;
                         logger.info(String.format("New highest round-trip time: %.3f ms", highestDuration / 1000));
 
-                        // reset highest round-trip time after 5 minute
-                        scheduler.schedule(() -> {
-                            logger.info(String.format("Resetting highest round-trip time: %.3f ms", highestDuration / 1000));
-                            highestDuration = 0;
-                        }, 5, TimeUnit.MINUTES);
-
                     } else if (duration > 20000) { // 20 ms
                         logger.warning(String.format("High Round-trip time: %.3f ms", duration / 1000));
                     }
@@ -203,12 +198,22 @@ public class PingPong {
                     logger.log(Level.SEVERE, "Ping task exception", e);
                 }
 
-                if (writePrometheusMetrics) {
-                    writePrometheusMetrics();
-                }
             };
 
             scheduler.scheduleAtFixedRate(pingTask, 0, SEND_PING_INTERVAL, TimeUnit.MILLISECONDS);
+
+            // reset highest round-trip time after 5 minute
+            scheduler.schedule(() -> {
+                if (highestDuration != 0) {
+                    logger.info(String.format("Resetting highest round-trip time, was: %.3f ms", highestDuration / 1000));
+                    highestDuration = 0;
+                }
+            }, 5, TimeUnit.MINUTES);
+
+            // Write prometheus metrics every 10 seconds
+            if (writePrometheusMetrics) {
+                scheduler.scheduleAtFixedRate(() -> writePrometheusMetrics(), 0, 10, TimeUnit.SECONDS);
+            }
 
             // Keep the client running
             Thread.currentThread().join();

@@ -4,4 +4,8 @@ set -e
 
 javac PingPong.java
 
-exec java -Xmx4G -XX:InitiatingHeapOccupancyPercent=90 PingPong server
+: ${JAVA_HEAP_SIZE:=4G}
+
+echo "using JAVA_HEAP_SIZE=${JAVA_HEAP_SIZE}"
+
+exec java -Xmx${JAVA_HEAP_SIZE} -XX:InitiatingHeapOccupancyPercent=90 PingPong server

@@ -16,6 +16,7 @@ public class PingPong {
 
     private final List<LargeObject> largeObjects = new LinkedList<>();
 
+    public static final int SEND_PING_INTERVAL = 2; // ms
 
     static {
         // Set up the logger with a custom format
@@ -93,7 +94,7 @@ public class PingPong {
         double availableMemoryPercentage = (double) availableMemory / maxMemory * 100;
 
         if (usedMemoryPercentage > 95) {
-            logger.warning(String.format("Used memory: %.2f%%, Available memory: %.2f%%", usedMemoryPercentage,
+            logger.fine(String.format("Used memory: %.2f%%, Available memory: %.2f%%", usedMemoryPercentage,
                     availableMemoryPercentage));
             return true;
         }
@@ -103,7 +104,7 @@ public class PingPong {
 
     synchronized private void removeLargeObjectsIfRequred() {
         if (heapUsageCritical()) {
-            logger.warning("Heap usage is critical, removing large objects");
+            logger.fine("Heap usage is critical, removing large objects");
             for (int i = 0; i < 1000; i++) {
                 if (largeObjects.isEmpty()) {
                     break;
@@ -127,7 +128,7 @@ public class PingPong {
 
                     out.println("pong");
 
-                    if (largeObjects.size() % 100 == 0) {
+                    if (largeObjects.size() % 500 == 0) {
                         logger.info("Got ping, sent pong, largeobjects count: " + largeObjects.size());
                     }
                 } else {
@@ -140,6 +141,7 @@ public class PingPong {
     }
 
     protected void client() {
+        logger.info("starting client on port " + PORT + " and sending ping every " + SEND_PING_INTERVAL + " ms");
         try (Socket socket = new Socket("localhost", PORT);
                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
@@ -164,7 +166,7 @@ public class PingPong {
                 }
             };
 
-            scheduler.scheduleAtFixedRate(pingTask, 0, 250, TimeUnit.MILLISECONDS);
+            scheduler.scheduleAtFixedRate(pingTask, 0, SEND_PING_INTERVAL, TimeUnit.MILLISECONDS);
 
             // Keep the client running
             Thread.currentThread().join();

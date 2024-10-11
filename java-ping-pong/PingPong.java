@@ -154,11 +154,9 @@ public class PingPong {
                     if (duration > highestDuration) {
                         highestDuration = duration;
                         logger.info(String.format("New highest round-trip time: %.3f ms", highestDuration / 1000));
-                    } else if (duration > 1000) {
+                    } else if (duration > 20000) { // 20 ms
                         logger.warning(String.format("High Round-trip time: %.3f ms", duration / 1000));
                     }
-                    // logger.info(String.format("Server response: %s (Round-trip time: %.3f ms)",
-                    // response, duration / 1000));
                 } catch (IOException e) {
                     logger.log(Level.SEVERE, "Ping task exception", e);
                 }

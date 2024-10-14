@@ -23,6 +23,12 @@ public class PingPong {
 
     public static int PI_DIGIT = 10;
 
+    public static enum Workload {
+        MEMORY, PI
+    }
+
+    public static Workload WORKLOAD = Workload.PI;
+
 
     private static final String PROMETHEUS_TEXTFILE_PATH = "/var/lib/prometheus/node-exporter";
 
@@ -91,8 +97,11 @@ public class PingPong {
             while ((message = in.readLine()) != null) {
                 if (message.equals("ping")) {
 
-                    //workloadMemoryAllocation();
-                    workloadCalculatePi();
+                    if (WORKLOAD == Workload.MEMORY) {
+                        workloadMemoryAllocation();
+                    } else if (WORKLOAD == Workload.PI) {
+                        workloadCalculatePi();
+                    }
 
                     out.println("pong");
                     pingCount++;
@@ -237,8 +246,9 @@ public class PingPong {
     private static void printUsage() {
         System.out.println("Usage: java PingPong <server|client> [options]");
         System.out.println("Options:");
-        System.out.println("  -i, --send-ping-interval <interval>  Interval in milliseconds to send ping messages");
-        System.out.println("  -p, --pi-digit <digit>               Calculate pi to the given digit");
+        System.out.println("  -i, --send-ping-interval <interval>  (client) Interval in milliseconds to send ping messages");
+        System.out.println("  -w, --workload <memory|pi>           (server) Workload to simulate on the server");
+        System.out.println("  -p, --pi-digit <digit>               (server) Calculate pi to the given digit");
         System.out.println("  -h, --help                           Show this help message");
     }
 
@@ -267,6 +277,20 @@ public class PingPong {
                     return;
                 }
                 PI_DIGIT = Integer.parseInt(args[i]);
+            } else if (args[i].equals("-w") || args[i].equals("--workload")) {
+                i++;
+                if (i >= args.length) {
+                    System.out.println("Missing value for " + args[i-1]);
+                    return;
+                }
+                if (args[i].equals("memory")) {
+                    WORKLOAD = Workload.MEMORY;
+                } else if (args[i].equals("pi")) {
+                    WORKLOAD = Workload.PI;
+                } else {
+                    System.out.println("Unknown workload: " + args[i]);
+                    return;
+                }
             } else if (args[i].equals("-h") || args[i].equals("--help")) {
                 printUsage();
                 return;
@@ -279,14 +303,20 @@ public class PingPong {
 
 
         if (module.equalsIgnoreCase("server")) {
+            logger.info(String.format("Starting server with workload: %s", WORKLOAD));
+            if (WORKLOAD == Workload.PI) {
+                logger.info(String.format("Calculating %d digit of Pi", PI_DIGIT));
+            }
             pingPong.server();
         } else if (module.equalsIgnoreCase("client")) {
             pingPong.client();
         } else {
             System.out.println("Unknown argument: " + args[0]);
-            System.out.println("Usage: java PingPong <server|client>");
+            printUsage();
         }
     }
+
+
 
 
     private void workloadMemoryAllocation() {

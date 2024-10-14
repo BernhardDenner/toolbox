@@ -4,4 +4,4 @@ set -e
 
 javac PingPong.java
 
-exec java PingPong client
+exec java PingPong client "$@"

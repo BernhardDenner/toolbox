@@ -8,4 +8,4 @@ javac PingPong.java
 
 echo "using JAVA_HEAP_SIZE=${JAVA_HEAP_SIZE}"
 
-exec java -Xmx${JAVA_HEAP_SIZE} -XX:InitiatingHeapOccupancyPercent=90 PingPong server
+exec java -Xmx${JAVA_HEAP_SIZE} -XX:InitiatingHeapOccupancyPercent=90 PingPong server "$@"

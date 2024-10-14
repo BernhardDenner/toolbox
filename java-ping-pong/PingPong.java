@@ -1,4 +1,5 @@
 import java.io.*;
+import java.math.BigDecimal;
 import java.net.*;
 import java.util.LinkedList;
 import java.util.List;
@@ -18,11 +19,9 @@ public class PingPong {
     private double roundtripSum = 0;
     private HashMap<Integer, Double> roundtripTimes = new HashMap<>();
 
-    public static final int OBJECT_SIZE = 1024 * 1024; // 1 MB
+    public static int SEND_PING_INTERVAL = 2; // ms
 
-    private final List<LargeObject> largeObjects = new LinkedList<>();
-
-    public static final int SEND_PING_INTERVAL = 2; // ms
+    public static int PI_DIGIT = 10;
 
 
     private static final String PROMETHEUS_TEXTFILE_PATH = "/var/lib/prometheus/node-exporter";
@@ -69,14 +68,6 @@ public class PingPong {
         }
     }
 
-    private class LargeObject {
-        private byte[] data;
-
-        public LargeObject(int size) {
-            data = new byte[size];
-        }
-    }
-
     protected void server() {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             logger.info(String.format("Server is listening on port %d", PORT));
@@ -91,55 +82,24 @@ public class PingPong {
         }
     }
 
-    private boolean heapUsageCritical() {
-        Runtime runtime = Runtime.getRuntime();
-        long maxMemory = runtime.maxMemory();
-        long totalMemory = runtime.totalMemory();
-        long freeMemory = runtime.freeMemory();
-        long usedMemory = totalMemory - freeMemory;
-        long availableMemory = maxMemory - usedMemory;
-
-        double usedMemoryPercentage = (double) usedMemory / maxMemory * 100;
-        double availableMemoryPercentage = (double) availableMemory / maxMemory * 100;
-
-        if (usedMemoryPercentage > 95) {
-            logger.fine(String.format("Used memory: %.2f%%, Available memory: %.2f%%", usedMemoryPercentage,
-                    availableMemoryPercentage));
-            return true;
-        }
-
-        return false;
-    }
-
-    synchronized private void removeLargeObjectsIfRequred() {
-        if (heapUsageCritical()) {
-            logger.fine("Heap usage is critical, removing large objects");
-            for (int i = 0; i < 1000; i++) {
-                if (largeObjects.isEmpty()) {
-                    break;
-                }
-                largeObjects.remove(0);
-            }
-        }
-    }
-
     private void handleClient(Socket socket) {
         try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true)) {
 
             String message;
+            long pingCount = 0;
             while ((message = in.readLine()) != null) {
                 if (message.equals("ping")) {
 
-                    LargeObject largeObject = new LargeObject(OBJECT_SIZE);
-                    removeLargeObjectsIfRequred();
-                    largeObjects.add(largeObject);
+                    //workloadMemoryAllocation();
+                    workloadCalculatePi();
 
                     out.println("pong");
-
-                    if (largeObjects.size() % 500 == 0) {
-                        logger.info("Got ping, sent pong, largeobjects count: " + largeObjects.size());
+                    pingCount++;
+                    if (pingCount % 500 == 0) {
+                        logger.info("Handled " + pingCount + " pings");
                     }
+
                 } else {
                     logger.warning("Got unknown message: " + message);
                 }
@@ -274,22 +234,267 @@ public class PingPong {
         }
     }
 
+    private static void printUsage() {
+        System.out.println("Usage: java PingPong <server|client> [options]");
+        System.out.println("Options:");
+        System.out.println("  -i, --send-ping-interval <interval>  Interval in milliseconds to send ping messages");
+        System.out.println("  -p, --pi-digit <digit>               Calculate pi to the given digit");
+        System.out.println("  -h, --help                           Show this help message");
+    }
+
 
     public static void main(String[] args) {
-        if (args.length != 1) {
-            System.out.println("Usage: java PingPong <server|client>");
+        if (args.length < 1) {
+            printUsage();
             return;
         }
 
         PingPong pingPong = new PingPong();
 
-        if (args[0].equalsIgnoreCase("server")) {
+        String module = args[0];
+        for (int i = 1; i < args.length; i++) {
+            if (args[i].equals("-i") || args[i].equals("--send-ping-interval")) {
+                i++;
+                if (i >= args.length) {
+                    System.out.println("Missing value for " + args[i-1]);
+                    return;
+                }
+                SEND_PING_INTERVAL = Integer.parseInt(args[i]);
+            } else if (args[i].equals("-p") || args[i].equals("--pi-digit")) {
+                i++;
+                if (i >= args.length) {
+                    System.out.println("Missing value for " + args[i-1]);
+                    return;
+                }
+                PI_DIGIT = Integer.parseInt(args[i]);
+            } else if (args[i].equals("-h") || args[i].equals("--help")) {
+                printUsage();
+                return;
+            } else {
+                System.out.println("Unknown argument: " + args[i]);
+                printUsage();
+                return;
+            }
+        }
+
+
+        if (module.equalsIgnoreCase("server")) {
             pingPong.server();
-        } else if (args[0].equalsIgnoreCase("client")) {
+        } else if (module.equalsIgnoreCase("client")) {
             pingPong.client();
         } else {
             System.out.println("Unknown argument: " + args[0]);
             System.out.println("Usage: java PingPong <server|client>");
         }
     }
+
+
+    private void workloadMemoryAllocation() {
+        LargeObject largeObject = new LargeObject(OBJECT_SIZE);
+        removeLargeObjectsIfRequred();
+        largeObjects.add(largeObject);
+    }
+
+    public static final int OBJECT_SIZE = 1024 * 1024; // 1 MB
+
+    private final List<LargeObject> largeObjects = new LinkedList<>();
+
+    private class LargeObject {
+        private byte[] data;
+
+        public LargeObject(int size) {
+            data = new byte[size];
+        }
+    }
+
+    private boolean heapUsageCritical() {
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory();
+        long totalMemory = runtime.totalMemory();
+        long freeMemory = runtime.freeMemory();
+        long usedMemory = totalMemory - freeMemory;
+        long availableMemory = maxMemory - usedMemory;
+
+        double usedMemoryPercentage = (double) usedMemory / maxMemory * 100;
+        double availableMemoryPercentage = (double) availableMemory / maxMemory * 100;
+
+        if (usedMemoryPercentage > 95) {
+            logger.fine(String.format("Used memory: %.2f%%, Available memory: %.2f%%", usedMemoryPercentage,
+                    availableMemoryPercentage));
+            return true;
+        }
+
+        return false;
+    }
+
+    synchronized private void removeLargeObjectsIfRequred() {
+        if (heapUsageCritical()) {
+            logger.info("Heap usage is critical, removing large objects");
+            for (int i = 0; i < 1000; i++) {
+                if (largeObjects.isEmpty()) {
+                    break;
+                }
+                largeObjects.remove(0);
+            }
+        }
+    }
+
+
+
+    private void workloadCalculatePi() {
+        getDecimal(PI_DIGIT);
+    }
+
+/**
+ * The next part is taken from https://github.com/feltocraig/BBP-Bellard/tree/master
+ */
+
+/**
+ * Prints the nth number of pi followed by the next 8 numbers in base 10.
+ * This program is based on Bellard's work.
+ * @author feltocraig
+ */
+
+	
+	/**
+	 * Returns the nth digit of pi followed by the next 8 numbers
+	 * @param n - nth number of pi to return
+	 * @return returns an integer value containing 8 digits after n
+	 */
+	public int getDecimal(long n) {
+		long av, a, vmax, N, num, den, k, kq, kq2, t, v, s, i;
+		double sum;
+
+		N = (long) ((n + 20) * Math.log(10) / Math.log(2));
+
+		sum = 0;
+
+		for (a = 3; a <= (2 * N); a = nextPrime(a)) {
+
+			vmax = (long) (Math.log(2 * N) / Math.log(a));
+			av = 1;
+			for (i = 0; i < vmax; i++)
+				av = av * a;
+
+			s = 0;
+			num = 1;
+			den = 1;
+			v = 0;
+			kq = 1;
+			kq2 = 1;
+
+			for (k = 1; k <= N; k++) {
+
+				t = k;
+				if (kq >= a) {
+					do {
+						t = t / a;
+						v--;
+					} while ((t % a) == 0);
+					kq = 0;
+				}
+				kq++;
+				num = mulMod(num, t, av);
+
+				t = (2 * k - 1);
+				if (kq2 >= a) {
+					if (kq2 == a) {
+						do {
+							t = t / a;
+							v++;
+						} while ((t % a) == 0);
+					}
+					kq2 -= a;
+				}
+				den = mulMod(den, t, av);
+				kq2 += 2;
+
+				if (v > 0) {
+					t = modInverse(den, av);
+					t = mulMod(t, num, av);
+					t = mulMod(t, k, av);
+					for (i = v; i < vmax; i++)
+						t = mulMod(t, a, av);
+					s += t;
+					if (s >= av)
+						s -= av;
+				}
+
+			}
+
+			t = powMod(10, n - 1, av);
+			s = mulMod(s, t, av);
+			sum = (sum + (double) s / (double) av) % 1;
+		}
+		return (int) (sum * 1e9); // 1e9 is 9 decimal places
+	}
+
+	private long mulMod(long a, long b, long m) {
+		return (long) (a * b) % m;
+	}
+
+	private long modInverse(long a, long n) {
+		long i = n, v = 0, d = 1;
+		while (a > 0) {
+			long t = i / a, x = a;
+			a = i % x;
+			i = x;
+			x = d;
+			d = v - t * x;
+			v = x;
+		}
+		v %= n;
+		if (v < 0)
+			v = (v + n) % n;
+		return v;
+	}
+
+	private long powMod(long a, long b, long m) {
+		long tempo;
+		if (b == 0)
+			tempo = 1;
+		else if (b == 1)
+			tempo = a;
+
+		else {
+			long temp = powMod(a, b / 2, m);
+			if (b % 2 == 0)
+				tempo = (temp * temp) % m;
+			else
+				tempo = ((temp * temp) % m) * a % m;
+		}
+		return tempo;
+	}
+
+	private boolean isPrime(long n) {
+		if (n == 2 || n == 3)
+			return true;
+		if (n % 2 == 0 || n % 3 == 0 || n < 2)
+			return false;
+
+		long sqrt = (long) Math.sqrt(n) + 1;
+
+		for (long i = 6; i <= sqrt; i += 6) {
+			if (n % (i - 1) == 0)
+				return false;
+			else if (n % (i + 1) == 0)
+				return false;
+		}
+		return true;
+	}
+
+	private long nextPrime(long n) {
+		if (n < 2)
+			return 2;
+		if (n == 9223372036854775783L) {
+			System.err.println("Next prime number exceeds Long.MAX_VALUE: " + Long.MAX_VALUE);
+			return -1;
+		}
+		for (long i = n + 1;; i++)
+			if (isPrime(i))
+				return i;
+	}
+
+
+
 }

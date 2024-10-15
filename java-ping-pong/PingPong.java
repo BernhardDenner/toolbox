@@ -359,7 +359,7 @@ public class PingPong {
 
     synchronized private void removeLargeObjectsIfRequred() {
         if (heapUsageCritical() && largeObjects.size() >= 10) {
-            logger.info("Heap usage is critical, removing large objects");
+            logger.info("Heap usage is critical, removing large objects, current size: " + largeObjects.size());
             for (int i = 0; i < 1000; i++) {
                 if (largeObjects.isEmpty()) {
                     break;

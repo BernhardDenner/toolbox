@@ -26,8 +26,9 @@ socket.bind("0.0.0.0", PORT.to_i)
 
 while true do
   resp = socket.recvfrom(256)
-  msg = resp[0]
-  remote = resp[1][2]
-  LOG.info "got message from #{remote}: #{msg}"
+  msg = resp[0].strip
+  remoteip = resp[1][2]
+  remoteport = resp[1][1]
+  LOG.info "got message from #{remoteip}:#{remoteport}: #{msg}"
+  socket.send("hey #{remoteip} 💪 , \"#{msg}\" back to you\n", 0, remoteip, remoteport)
 end
-
